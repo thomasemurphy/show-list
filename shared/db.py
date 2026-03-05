@@ -1,0 +1,66 @@
+from datetime import datetime, timezone
+from typing import Optional
+
+from google.cloud import firestore
+
+from shared.config import config
+
+_client: Optional[firestore.Client] = None
+
+
+def _db() -> firestore.Client:
+    global _client
+    if _client is None:
+        _client = firestore.Client(project=config.GCP_PROJECT_ID)
+    return _client
+
+
+# ── Users ────────────────────────────────────────────────────────────────────
+
+def get_user(phone: str) -> Optional[dict]:
+    doc = _db().collection("users").document(phone).get()
+    return doc.to_dict() if doc.exists else None
+
+
+def upsert_user(phone: str, **fields) -> None:
+    fields.setdefault("created_at", datetime.now(timezone.utc))
+    _db().collection("users").document(phone).set(fields, merge=True)
+
+
+def add_band(phone: str, band: str) -> None:
+    _db().collection("users").document(phone).set(
+        {"bands": firestore.ArrayUnion([band])},
+        merge=True,
+    )
+
+
+def remove_band(phone: str, band: str) -> None:
+    _db().collection("users").document(phone).update(
+        {"bands": firestore.ArrayRemove([band])}
+    )
+
+
+def get_all_users() -> list[dict]:
+    docs = _db().collection("users").stream()
+    users = []
+    for doc in docs:
+        data = doc.to_dict()
+        data["_phone"] = doc.id
+        users.append(data)
+    return users
+
+
+# ── Deduplication ────────────────────────────────────────────────────────────
+
+def alert_sent(phone: str, event_id: str) -> bool:
+    doc_id = f"{phone}_{event_id}"
+    doc = _db().collection("alerts_sent").document(doc_id).get()
+    return doc.exists
+
+
+def record_alert(phone: str, event_id: str, event_title: str) -> None:
+    doc_id = f"{phone}_{event_id}"
+    _db().collection("alerts_sent").document(doc_id).set({
+        "sent_at": datetime.now(timezone.utc),
+        "event_title": event_title,
+    })

@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud emulators firestore start
+      --host-port=0.0.0.0:8080
+      --project=${GCP_PROJECT_ID:-show-list-dev}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  webhook:
+    build:
+      context: .
+      dockerfile: webhook/Dockerfile
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - SKIP_TWILIO_VALIDATION=true
+    depends_on:
+      firestore:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+      - ./webhook:/app/webhook
