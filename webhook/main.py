@@ -6,7 +6,7 @@ from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
 from shared.config import config
-from webhook import intent, handlers
+from webhook import conversation
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,13 +44,11 @@ def webhook():
 
     logger.info("Incoming %s from %s: %r", channel, phone, body)
 
-    parsed = intent.parse(body)
-    logger.info("Parsed intent: %s", parsed)
-
-    reply = handlers.handle(phone, channel, parsed)
+    reply_text = conversation.reply(phone, channel, body)
+    logger.info("Replying: %r", reply_text)
 
     resp = MessagingResponse()
-    resp.message(reply)
+    resp.message(reply_text)
     return str(resp), 200, {"Content-Type": "text/xml"}
 
 
