@@ -10,14 +10,15 @@ from __future__ import annotations
 
 import logging
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from shared import db
 from shared.config import config
 from webhook import tools
 
 logger = logging.getLogger(__name__)
-genai.configure(api_key=config.GEMINI_API_KEY)
+client = genai.Client(api_key=config.GEMINI_API_KEY)
 
 MODEL_NAME = "gemini-2.5-flash"
 HISTORY_LIMIT = 10
@@ -55,19 +56,17 @@ def reply(phone: str, channel: str, message: str) -> str:
     user = db.get_user(phone) or {}
     history = user.get("messages") or []
 
-    model = genai.GenerativeModel(
-        MODEL_NAME,
-        system_instruction=SYSTEM_INSTRUCTION + _build_profile(user, channel),
-        tools=tools.make_tools(phone),
-    )
-
     chat_history = [
-        {"role": turn["role"], "parts": [turn["text"]]}
+        types.Content(role=turn["role"], parts=[types.Part(text=turn["text"])])
         for turn in history
     ]
-    chat = model.start_chat(
+    chat = client.chats.create(
+        model=MODEL_NAME,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION + _build_profile(user, channel),
+            tools=tools.make_tools(phone),
+        ),
         history=chat_history,
-        enable_automatic_function_calling=True,
     )
 
     try:

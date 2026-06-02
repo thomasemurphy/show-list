@@ -3,9 +3,12 @@
 Each tool is a per-request closure over `phone`, so the LLM never sees or
 supplies the user's phone number — it only sees the arguments relevant to
 the action it's taking.
-"""
 
-from __future__ import annotations
+NOTE: do not add `from __future__ import annotations` here. The google-genai
+automatic function calling introspects these tool signatures and runs
+isinstance() against the parameter annotations; PEP-563 stringized annotations
+break that with "isinstance() arg 2 must be a type".
+"""
 
 import logging
 
