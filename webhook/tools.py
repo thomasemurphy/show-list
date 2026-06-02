@@ -12,15 +12,26 @@ break that with "isinstance() arg 2 must be a type".
 
 import logging
 
-from shared import db
+from shared import db, seatgeek
 
 logger = logging.getLogger(__name__)
 
 
 def make_tools(phone: str):
     def add_band(band: str) -> dict:
-        """Add a band to this user's tracking list. Returns the updated list."""
+        """Add a band to this user's tracking list. Returns the updated list.
+
+        Before adding, confirms the band exists on our concert data source. If no
+        confident match is found, returns ok=false reason=not_found and does NOT
+        add it — so tell the user we couldn't find that artist instead of claiming
+        they're now tracking it.
+        """
         logger.info("[tool] add_band phone=%s band=%r", phone, band)
+        if not seatgeek.resolve_performer(band):
+            logger.info("[tool] add_band: no concert-source match for %r", band)
+            user = db.get_user(phone) or {}
+            return {"ok": False, "reason": "not_found", "band": band,
+                    "bands": user.get("bands") or []}
         db.upsert_user(phone)
         db.add_band(phone, band)
         user = db.get_user(phone) or {}

@@ -16,12 +16,13 @@ logger = logging.getLogger(__name__)
 # rather match nothing than silently track a tribute.
 _MIN_FUZZY_SCORE = 0.5
 
-# Both lookups below are memoized so the same work isn't repeated when multiple
-# users track the same band. The poller is a one-shot Cloud Run Job (fresh
-# process per scheduled run), so these caches live for exactly one poll cycle
-# and never go stale across days. If this module is ever reused by a
-# long-running process, call find_performer.cache_clear() / find_events.cache_clear()
-# between cycles.
+# find_performer / find_events are memoized so the same work isn't repeated when
+# multiple users track the same band. The poller is a one-shot Cloud Run Job
+# (fresh process per scheduled run), so those caches live for exactly one poll
+# cycle and never go stale across days. The webhook is long-running, so it calls
+# the *uncached* resolve_performer directly (add-time validation) rather than the
+# memoized wrappers, to avoid caching stale or transient-failure results across
+# requests.
 
 _BASE = "https://api.seatgeek.com/2"
 _AUTH = {
@@ -35,8 +36,7 @@ def _normalize(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
 
 
-@lru_cache(maxsize=None)
-def find_performer(band_name: str) -> Optional[str]:
+def resolve_performer(band_name: str) -> Optional[str]:
     """Return the best SeatGeek performer slug for band_name, or None.
 
     SeatGeek's default ranking buries real acts under same-named noise (e.g.
@@ -45,8 +45,8 @@ def find_performer(band_name: str) -> Optional[str]:
     back to the top hit only when we're confident. This avoids silently tracking
     the wrong act (a tribute band, a recurring club night, a theater company).
 
-    Memoized per run: the slug depends only on the band name, so it's resolved
-    once no matter how many users track the band.
+    Uncached. The webhook calls this directly for add-time validation; the poller
+    uses the memoized find_performer wrapper below.
     """
     try:
         resp = requests.get(
@@ -88,6 +88,13 @@ def find_performer(band_name: str) -> Optional[str]:
     logger.info("No confident SeatGeek match for %r (best=%r, score=%s) — skipping",
                 band_name, best.get("name"), best.get("score"))
     return None
+
+
+@lru_cache(maxsize=None)
+def find_performer(band_name: str) -> Optional[str]:
+    """Per-run memoized wrapper around resolve_performer, used by the poller so a
+    band tracked by many users is resolved only once per poll cycle."""
+    return resolve_performer(band_name)
 
 
 @lru_cache(maxsize=None)

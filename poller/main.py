@@ -10,8 +10,8 @@ import logging
 import os
 import sys
 
-from shared import db
-from poller import seatgeek, notifier
+from shared import db, seatgeek
+from poller import notifier
 
 logging.basicConfig(
     level=logging.INFO,
