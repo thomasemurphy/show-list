@@ -1,4 +1,5 @@
 import logging
+import re
 from functools import lru_cache
 from typing import Optional
 
@@ -7,6 +8,13 @@ import requests
 from shared.config import config
 
 logger = logging.getLogger(__name__)
+
+# For names with no exact match, only accept SeatGeek's top hit if its relevance
+# score clears this bar. Real touring acts score well above it (Geese 0.64,
+# MJ Lenderman 0.73, Phoebe Bridgers 0.79); tribute/cover acts that pollute
+# ambiguous queries score below it (e.g. "The Radiohead Trip" 0.39), so we'd
+# rather match nothing than silently track a tribute.
+_MIN_FUZZY_SCORE = 0.5
 
 # Both lookups below are memoized so the same work isn't repeated when multiple
 # users track the same band. The poller is a one-shot Cloud Run Job (fresh
@@ -22,9 +30,20 @@ _AUTH = {
 }
 
 
+def _normalize(name: str) -> str:
+    """Lowercase and strip non-alphanumerics, for forgiving name comparison."""
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+
+
 @lru_cache(maxsize=None)
 def find_performer(band_name: str) -> Optional[str]:
-    """Return the best-match SeatGeek performer slug for band_name, or None.
+    """Return the best SeatGeek performer slug for band_name, or None.
+
+    SeatGeek's default ranking buries real acts under same-named noise (e.g.
+    "Wednesday" returns club nights like "Kapture Wednesdays" first), so we sort
+    by relevance score, discard junk, and prefer an exact name match — falling
+    back to the top hit only when we're confident. This avoids silently tracking
+    the wrong act (a tribute band, a recurring club night, a theater company).
 
     Memoized per run: the slug depends only on the band name, so it's resolved
     once no matter how many users track the band.
@@ -32,20 +51,43 @@ def find_performer(band_name: str) -> Optional[str]:
     try:
         resp = requests.get(
             f"{_BASE}/performers",
-            params={**_AUTH, "q": band_name, "per_page": 1},
+            params={**_AUTH, "q": band_name, "per_page": 10, "sort": "score.desc"},
             timeout=10,
         )
         resp.raise_for_status()
         performers = resp.json().get("performers", [])
-        if not performers:
-            logger.info("No SeatGeek performer found for %r", band_name)
-            return None
-        slug = performers[0]["slug"]
-        logger.info("Performer %r → slug %r", band_name, slug)
-        return slug
     except Exception as exc:
         logger.warning("SeatGeek performer lookup failed for %r: %s", band_name, exc)
         return None
+
+    # Drop pure-junk phantoms: entries with neither relevance nor any events.
+    candidates = [
+        p for p in performers
+        if (p.get("score") or 0) > 0 or ((p.get("stats") or {}).get("event_count") or 0) > 0
+    ]
+    if not candidates:
+        logger.info("No real SeatGeek performer found for %r", band_name)
+        return None
+
+    # Prefer an exact (case/punctuation-insensitive) name match. Results are
+    # sorted by score desc, so the first exact match is also the most popular.
+    target = _normalize(band_name)
+    for p in candidates:
+        if _normalize(p.get("name", "")) == target:
+            logger.info("Performer %r → slug %r (exact match)", band_name, p["slug"])
+            return p["slug"]
+
+    # No exact match — only trust the top hit if it's a confident match, else
+    # match nothing rather than risk a tribute/cover act.
+    best = candidates[0]
+    if (best.get("score") or 0) >= _MIN_FUZZY_SCORE:
+        logger.info("Performer %r → slug %r (fuzzy, score=%s)",
+                    band_name, best["slug"], best.get("score"))
+        return best["slug"]
+
+    logger.info("No confident SeatGeek match for %r (best=%r, score=%s) — skipping",
+                band_name, best.get("name"), best.get("score"))
+    return None
 
 
 @lru_cache(maxsize=None)
