@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <title>Show List — concert alerts by text</title>
 <style>
   :root { color-scheme: light; }
@@ -16,9 +17,36 @@
     margin: 0 auto;
     padding: 2.5rem 1.25rem 4rem;
   }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin: 0 0 1.5rem;
+  }
+  .brand .mark {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    background: #2b5fbc;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.15rem;
+    letter-spacing: -.03em;
+  }
+  .brand .name { font-weight: 700; font-size: 1.1rem; letter-spacing: -.01em; }
   h1 { font-size: 2rem; margin: 0 0 .25rem; letter-spacing: -.02em; }
   .tagline { color: #666; margin: 0 0 2rem; font-size: 1.1rem; }
   h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; }
+  .faq dt { font-weight: 600; margin-top: 1rem; }
+  .faq dd { margin: .25rem 0 0; padding: 0; }
+  address {
+    font-style: normal;
+    line-height: 1.5;
+  }
   .opt-in {
     background: #fff;
     border: 1px solid #e3e3dc;
@@ -46,35 +74,51 @@
 </head>
 <body>
 
-<h1>Show List</h1>
-<p class="tagline">Concert alerts by text — track your favorite bands.</p>
+<div class="brand">
+  <span class="mark">SL</span>
+  <span class="name">Show List</span>
+</div>
+
+<h1>Concert alerts by text</h1>
+<p class="tagline">Never miss your favorite bands when they come to town.</p>
 
 <p>
   Show List is a text-message service that helps you stay on top of upcoming
   concerts. Add any band to your list, set your US zip code, and we'll text
-  you when they announce a show within driving distance.
+  you when they announce a show within driving distance. No app to install and
+  no account to create — the whole thing runs over plain SMS.
 </p>
 
-<h2>About the service</h2>
+<h2>About Show List</h2>
 <p>
-  Show List is operated by Tom Murphy in Oakland, CA, and has been running
-  since 2026. The service is actively maintained: subscribers can opt in at any
-  time by texting our toll-free number, and opt out at any time by replying
-  <code>STOP</code>. Show alerts are powered by a daily check of public
-  ticketing data.
-</p>
-<p>
-  <strong>Service number:</strong> <code>+1 (877) 367-2083</code><br>
-  <strong>Coverage:</strong> United States (5-digit US zip codes)<br>
-  <strong>Contact:</strong> <a href="mailto:tommurphyemail@gmail.com">tommurphyemail@gmail.com</a>
+  Show List is operated by Tom Murphy out of Oakland, California, and has been
+  running since 2026. It's a dedicated concert-alert service, powered by a daily
+  automated check of public concert and ticketing data so your band list stays
+  current without any work on your part.
 </p>
 
 <h2>How it works</h2>
 <ol>
-  <li>Text the number below with the bands you want to follow and your zip code.</li>
-  <li>Once a day, the service checks for upcoming shows by those bands.</li>
-  <li>If there's a match near your zip, you get a text with the show details.</li>
+  <li>Text <code>START</code> to our number with the bands you want to follow and your 5-digit US zip code.</li>
+  <li>Once a day, the service checks for newly announced shows by those bands.</li>
+  <li>If there's a match within driving distance of your zip, you get a text with the show details — venue, city, and date.</li>
+  <li>Add or drop bands anytime by texting us; reply <code>STOP</code> to leave the service entirely.</li>
 </ol>
+
+<h2>Frequently asked</h2>
+<dl class="faq">
+  <dt>How much does it cost?</dt>
+  <dd>Show List is free to use. Standard message and data rates from your carrier may apply.</dd>
+
+  <dt>How often will you text me?</dt>
+  <dd>Only when one of your bands announces a nearby show — typically 0–3 messages per week, depending on how many bands you follow and whether they're touring.</dd>
+
+  <dt>How do I stop?</dt>
+  <dd>Reply <code>STOP</code> to the toll-free number at any time. That immediately removes your record from the service. Reply <code>HELP</code> for a list of commands.</dd>
+
+  <dt>What information do you keep?</dt>
+  <dd>Only your phone number, your zip code, and the bands you follow. We never sell or share it. See our <a href="privacy.html">Privacy Policy</a>.</dd>
+</dl>
 
 <div class="opt-in">
   <strong>To opt in, text <code>START</code> to <code>+1 (877) 367-2083</code></strong>
@@ -94,18 +138,21 @@
   </div>
 </div>
 
-<h2>What we store</h2>
+<h2>Contact</h2>
 <p>
-  Just three things: your phone number, your zip code, and the list of bands
-  you've asked to follow. We don't sell or share that information.
-  See the <a href="privacy.html">Privacy Policy</a> for the full picture.
+  Show List is operated by Tom Murphy. For questions, support, or data requests,
+  reply <code>HELP</code> to the toll-free number or reach us at:
 </p>
-
-<h2>Questions or trouble?</h2>
-<p>
-  Reply <code>HELP</code> to the toll-free number, or email
-  <a href="mailto:tommurphyemail@gmail.com">tommurphyemail@gmail.com</a>.
-</p>
+<address>
+  <strong>Show List</strong><br>
+  Tom Murphy<br>
+  3879 Whittle Ave<br>
+  Oakland, CA 94602<br>
+  United States<br>
+  <strong>Phone:</strong> <a href="tel:+18773672083">+1 (877) 367-2083</a><br>
+  <strong>Email:</strong> <a href="mailto:tommurphyemail@gmail.com">tommurphyemail@gmail.com</a><br>
+  <strong>Coverage:</strong> United States (5-digit US zip codes)
+</address>
 
 <footer>
   <a href="terms.html">Terms of Service</a>
