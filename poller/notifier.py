@@ -10,11 +10,16 @@ logger = logging.getLogger(__name__)
 _client = Client(config.TWILIO_ACCOUNT_SID, config.TWILIO_AUTH_TOKEN)
 
 
-def _format_date(dt_str: str) -> str:
-    """Format ISO datetime string to human-readable date."""
+def _format_date(dt_str: str, date_only: bool = False) -> str:
+    """Format ISO datetime string to human-readable date.
+
+    date_only drops the time — used for festivals, whose SeatGeek times are
+    placeholders (often 3:30 AM), not real set times.
+    """
     try:
         dt = datetime.fromisoformat(dt_str)
-        return dt.strftime("%a, %b %-d at %-I:%M %p")
+        fmt = "%a, %b %-d" if date_only else "%a, %b %-d at %-I:%M %p"
+        return dt.strftime(fmt)
     except Exception:
         return dt_str
 
@@ -23,11 +28,14 @@ def _build_message(user: dict, event: dict) -> str:
     band = event["band"]
     city = event["venue_city"]
     venue = event["venue_name"]
-    date = _format_date(event["datetime_local"])
     url = event["url"]
+    festival = event.get("festival")
+    date = _format_date(event["datetime_local"], date_only=bool(festival))
+    festival_line = f"Part of {festival}\n" if festival else ""
     return (
         f"🎵 {band} is coming to {city}!\n"
         f"{venue} · {date}\n"
+        f"{festival_line}"
         f"Tickets: {url}\n\n"
         f"Reply STOP {band} to unsubscribe."
     )

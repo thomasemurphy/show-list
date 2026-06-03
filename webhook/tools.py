@@ -19,15 +19,26 @@ logger = logging.getLogger(__name__)
 
 def make_tools(phone: str):
     def add_band(band: str) -> dict:
-        """Add a band to this user's tracking list. Returns the updated list.
+        """Add a band to this user's tracking list. Returns the updated list and
+        any upcoming shows near the user right now.
 
         Before adding, confirms the band exists on our concert data source. If no
         confident match is found, returns ok=false reason=not_found and does NOT
         add it — so tell the user we couldn't find that artist instead of claiming
         they're now tracking it.
+
+        On success, also searches the user's zip for upcoming shows:
+        - upcoming_shows is a (possibly empty) list of {date, venue, city, url}.
+        - If upcoming_shows is non-empty, tell the user the band is playing near
+          them, naming the date and venue/city of the soonest show(s).
+        - If upcoming_shows is empty, tell the user there are no scheduled shows
+          near them yet, but you'll alert them when one is announced.
+        - If searched_zip is false (user has no zip set), don't mention show
+          results — ask for their zip instead so we can check.
         """
         logger.info("[tool] add_band phone=%s band=%r", phone, band)
-        if not seatgeek.resolve_performer(band):
+        slug = seatgeek.resolve_performer(band)
+        if not slug:
             logger.info("[tool] add_band: no concert-source match for %r", band)
             user = db.get_user(phone) or {}
             return {"ok": False, "reason": "not_found", "band": band,
@@ -35,7 +46,21 @@ def make_tools(phone: str):
         db.upsert_user(phone)
         db.add_band(phone, band)
         user = db.get_user(phone) or {}
-        return {"ok": True, "bands": user.get("bands") or []}
+
+        zip_code = user.get("zip")
+        upcoming = []
+        if zip_code:
+            events = seatgeek.events_for_slug(slug, band, zip_code)
+            upcoming = [
+                # Festival times on SeatGeek are placeholders, so send only the
+                # date (YYYY-MM-DD) for festivals; full datetime otherwise.
+                {"date": e["datetime_local"][:10] if e["festival"] else e["datetime_local"],
+                 "venue": e["venue_name"], "city": e["venue_city"], "url": e["url"],
+                 "festival": e["festival"]}
+                for e in events
+            ]
+        return {"ok": True, "bands": user.get("bands") or [],
+                "searched_zip": bool(zip_code), "upcoming_shows": upcoming}
 
     def remove_band(band: str) -> dict:
         """Remove a band from this user's tracking list. Returns the updated list."""

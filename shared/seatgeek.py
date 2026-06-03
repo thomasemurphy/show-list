@@ -36,6 +36,22 @@ def _normalize(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
 
 
+def _festival_name(ev: dict) -> Optional[str]:
+    """If this event is a festival, return its name, else None.
+
+    SeatGeek marks festival events with type 'music_festival' and lists the
+    festival itself as the primary performer (the individual acts are non-primary
+    performers on the same event), so a band playing a festival shows up as one
+    event whose primary performer is the festival.
+    """
+    if ev.get("type") != "music_festival":
+        return None
+    for p in ev.get("performers", []):
+        if p.get("type") == "music_festival" and p.get("primary"):
+            return p.get("name")
+    return ev.get("short_title") or None
+
+
 def resolve_performer(band_name: str) -> Optional[str]:
     """Return the best SeatGeek performer slug for band_name, or None.
 
@@ -97,23 +113,17 @@ def find_performer(band_name: str) -> Optional[str]:
     return resolve_performer(band_name)
 
 
-@lru_cache(maxsize=None)
-def find_events(band_name: str, zip_code: str, range_mi: int = 50) -> list[dict]:
-    """
-    Return upcoming events for band_name near zip_code within range_mi miles.
+def events_for_slug(slug: str, band_name: str, zip_code: str, range_mi: int = 50) -> list[dict]:
+    """Return upcoming events for an already-resolved performer slug near
+    zip_code within range_mi miles. Uncached.
 
     Each event dict has:
         id, title, datetime_local, venue_name, venue_city, url, band
 
-    Memoized per run on (band_name, zip_code, range_mi): the event search is
-    location-dependent, so it's shared only among users in the same area
-    tracking the same band. The returned list is treated as read-only by
-    callers (poller.main only iterates it).
+    band_name is only used to label the returned events. The webhook calls this
+    directly at add-time (it already has the slug from resolve_performer); the
+    poller goes through the memoized find_events wrapper below.
     """
-    slug = find_performer(band_name)
-    if not slug:
-        return []
-
     try:
         resp = requests.get(
             f"{_BASE}/events",
@@ -144,7 +154,24 @@ def find_events(band_name: str, zip_code: str, range_mi: int = 50) -> list[dict]
             "venue_city": venue.get("city", ""),
             "url": ev.get("url", ""),
             "band": band_name,
+            "festival": _festival_name(ev),
         })
 
     logger.info("Found %d events for %r near %s", len(events), band_name, zip_code)
     return events
+
+
+@lru_cache(maxsize=None)
+def find_events(band_name: str, zip_code: str, range_mi: int = 50) -> list[dict]:
+    """
+    Return upcoming events for band_name near zip_code within range_mi miles.
+
+    Memoized per run on (band_name, zip_code, range_mi): the event search is
+    location-dependent, so it's shared only among users in the same area
+    tracking the same band. The returned list is treated as read-only by
+    callers (poller.main only iterates it).
+    """
+    slug = find_performer(band_name)
+    if not slug:
+        return []
+    return events_for_slug(slug, band_name, zip_code, range_mi)
