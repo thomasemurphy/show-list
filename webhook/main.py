@@ -2,6 +2,7 @@ import logging
 import os
 
 from flask import Flask, request, abort
+from werkzeug.middleware.proxy_fix import ProxyFix
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
@@ -12,6 +13,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+# Behind Cloud Run's TLS-terminating proxy, honor X-Forwarded-Proto/Host so
+# request.url reflects the original https URL — required for Twilio signature
+# validation, which signs the public https URL.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 _validator = RequestValidator(config.TWILIO_AUTH_TOKEN)
 
 

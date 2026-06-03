@@ -9,6 +9,7 @@ COPY shared/ shared/
 COPY webhook/ webhook/
 
 ENV PYTHONPATH=/app
-ENV PORT=5000
+ENV PORT=8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "30", "webhook.main:app"]
+# Shell form so $PORT (injected by Cloud Run) is expanded at runtime.
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 30 webhook.main:app

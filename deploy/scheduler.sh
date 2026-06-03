@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Create a Cloud Scheduler job to trigger the poller daily at noon UTC.
+# Create the scheduler service account, grant it invoker on the poller job, and
+# create a Cloud Scheduler job to trigger the poller daily at noon UTC.
+# Idempotent: safe to re-run. Run deploy/poller.sh first (the job must exist).
 # Usage: ./deploy/scheduler.sh [project-id] [region]
 set -euo pipefail
 
@@ -8,15 +10,26 @@ REGION="${2:-us-central1}"
 JOB_NAME="show-list-poller"
 SCHEDULE="0 12 * * *"   # daily at noon UTC
 
-# Cloud Run Job URI
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT}/jobs/${JOB_NAME}:run"
-
-# Service account for scheduler (must have roles/run.invoker on the job)
 SA="show-list-scheduler@${PROJECT}.iam.gserviceaccount.com"
 
-echo "Creating Cloud Scheduler job for $JOB_NAME ..."
+echo "Ensuring scheduler service account exists ..."
+gcloud iam service-accounts describe "$SA" --project "$PROJECT" >/dev/null 2>&1 \
+  || gcloud iam service-accounts create show-list-scheduler \
+       --project "$PROJECT" --display-name "Show List scheduler"
 
-gcloud scheduler jobs create http "$JOB_NAME-daily" \
+echo "Granting roles/run.invoker on the poller job ..."
+gcloud run jobs add-iam-policy-binding "$JOB_NAME" \
+  --project "$PROJECT" --region "$REGION" \
+  --member "serviceAccount:${SA}" --role roles/run.invoker
+
+echo "Creating/updating the Cloud Scheduler job ..."
+if gcloud scheduler jobs describe "${JOB_NAME}-daily" --location "$REGION" --project "$PROJECT" >/dev/null 2>&1; then
+  ACTION=update
+else
+  ACTION=create
+fi
+gcloud scheduler jobs "$ACTION" http "${JOB_NAME}-daily" \
   --location "$REGION" \
   --project "$PROJECT" \
   --schedule "$SCHEDULE" \
@@ -27,10 +40,4 @@ gcloud scheduler jobs create http "$JOB_NAME-daily" \
   --message-body "{}" \
   --headers "Content-Type=application/json"
 
-echo "Scheduler job created: $JOB_NAME-daily ($SCHEDULE UTC)"
-echo ""
-echo "Make sure the service account $SA has roles/run.invoker."
-echo "If it doesn't exist yet:"
-echo "  gcloud iam service-accounts create show-list-scheduler --project $PROJECT"
-echo "  gcloud run jobs add-iam-policy-binding $JOB_NAME \\"
-echo "    --region $REGION --member serviceAccount:$SA --role roles/run.invoker"
+echo "Scheduler job ${JOB_NAME}-daily ${ACTION}d ($SCHEDULE UTC)."

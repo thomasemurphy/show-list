@@ -87,4 +87,47 @@ def make_tools(phone: str):
         user = db.get_user(phone) or {}
         return {"bands": user.get("bands") or [], "zip": user.get("zip")}
 
-    return [add_band, remove_band, set_zip, list_bands]
+    def list_upcoming_shows() -> dict:
+        """List upcoming shows near the user across every band they track.
+
+        Use this whenever the user asks what shows are coming up / what's near
+        them / when their bands are playing. Searches live (we don't store show
+        data between the daily alert run and now). Returns:
+        - ok=false reason=no_zip  -> ask the user for their zip so we can check.
+        - ok=false reason=no_bands -> they track nothing yet; invite them to add.
+        - ok=true with shows: a date-sorted list of {band, date, venue, city,
+          url, festival}. If shows is empty, tell them nothing is scheduled near
+          them yet but you'll alert them when something is announced.
+
+        Summarize concisely for SMS, one line per show, e.g.
+        "Geese - Fri Aug 7 at The Fillmore, San Francisco". If a show has a
+        festival value, note it's part of that festival.
+        """
+        logger.info("[tool] list_upcoming_shows phone=%s", phone)
+        user = db.get_user(phone) or {}
+        zip_code = user.get("zip")
+        bands = user.get("bands") or []
+        if not zip_code:
+            return {"ok": False, "reason": "no_zip"}
+        if not bands:
+            return {"ok": False, "reason": "no_bands"}
+
+        shows = []
+        for band in bands:
+            slug = seatgeek.resolve_performer(band)
+            if not slug:
+                continue
+            for e in seatgeek.events_for_slug(slug, band, zip_code):
+                shows.append({
+                    "band": band,
+                    # Festival times are placeholders, so send date-only for them.
+                    "date": e["datetime_local"][:10] if e["festival"] else e["datetime_local"],
+                    "venue": e["venue_name"],
+                    "city": e["venue_city"],
+                    "url": e["url"],
+                    "festival": e["festival"],
+                })
+        shows.sort(key=lambda s: s["date"])
+        return {"ok": True, "shows": shows}
+
+    return [add_band, remove_band, set_zip, list_bands, list_upcoming_shows]
