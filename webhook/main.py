@@ -1,3 +1,4 @@
+import hmac
 import logging
 import os
 
@@ -6,6 +7,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
+from shared import seatgeek
 from shared.config import config
 from webhook import conversation
 
@@ -55,6 +57,41 @@ def webhook():
     resp = MessagingResponse()
     resp.message(reply_text)
     return str(resp), 200, {"Content-Type": "text/xml"}
+
+
+def _require_internal_auth(req) -> None:
+    """Abort with 401 unless req carries the shared secret for the internal API.
+
+    Guards the two /api/bands/* routes below, which the companion website
+    (Rails, on Heroku) calls to reuse this service's SeatGeek matching logic
+    instead of porting the precision-tuned scoring heuristics to Ruby.
+    """
+    provided = req.headers.get("X-Internal-Secret", "")
+    if not hmac.compare_digest(provided, config.INTERNAL_API_SHARED_SECRET):
+        abort(401)
+
+
+@app.route("/api/bands/resolve", methods=["GET"])
+def api_resolve_band():
+    _require_internal_auth(request)
+    name = request.args.get("name", "")
+    if not name:
+        return {"ok": False, "reason": "missing_name"}, 400
+    slug = seatgeek.resolve_performer(name)
+    if not slug:
+        return {"ok": False, "reason": "not_found"}, 200
+    return {"ok": True, "slug": slug}, 200
+
+
+@app.route("/api/bands/<slug>/shows", methods=["GET"])
+def api_band_shows(slug):
+    _require_internal_auth(request)
+    zip_code = request.args.get("zip", "")
+    if not zip_code:
+        return {"ok": False, "reason": "missing_zip"}, 400
+    band_name = request.args.get("name", slug)
+    events = seatgeek.events_for_slug(slug, band_name, zip_code)
+    return {"ok": True, "events": events}, 200
 
 
 @app.route("/health", methods=["GET"])

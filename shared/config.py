@@ -21,6 +21,7 @@ class Config:
     GEMINI_API_KEY: str = _require("GEMINI_API_KEY")
     GCP_PROJECT_ID: str = _require("GCP_PROJECT_ID")
     FIRESTORE_EMULATOR_HOST: str = os.getenv("FIRESTORE_EMULATOR_HOST", "")
+    INTERNAL_API_SHARED_SECRET: str = _require("INTERNAL_API_SHARED_SECRET")
 
 
 config = Config()

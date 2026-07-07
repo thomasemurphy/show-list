@@ -48,7 +48,8 @@ gcloud projects add-iam-policy-binding "$PROJECT" \
 
 echo "==> Pushing secrets from $ENV_FILE ..."
 for KEY in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_PHONE_NUMBER TWILIO_WHATSAPP_NUMBER \
-           SEATGEEK_CLIENT_ID SEATGEEK_CLIENT_SECRET GEMINI_API_KEY GCP_PROJECT_ID; do
+           SEATGEEK_CLIENT_ID SEATGEEK_CLIENT_SECRET GEMINI_API_KEY GCP_PROJECT_ID \
+           INTERNAL_API_SHARED_SECRET; do
   VALUE="$(grep "^${KEY}=" "$ENV_FILE" | cut -d= -f2-)"
   if [ -z "$VALUE" ]; then echo "   !! $KEY missing/empty in $ENV_FILE — skipping"; continue; fi
   if gcloud secrets describe "$KEY" --project "$PROJECT" >/dev/null 2>&1; then
