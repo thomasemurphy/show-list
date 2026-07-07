@@ -50,7 +50,9 @@ def run() -> None:
             # (overlapping search radii); dedup by event id before alerting.
             events_by_id = {}
             for zip_code in zips:
-                for event in seatgeek.find_events(band, zip_code):
+                events = seatgeek.find_events(band, zip_code)
+                db.set_show_cache(band, zip_code, events)
+                for event in events:
                     events_by_id[event["id"]] = event
 
             for event_id, event in events_by_id.items():

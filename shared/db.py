@@ -77,3 +77,22 @@ def record_alert(phone: str, event_id: str, event_title: str) -> None:
         "sent_at": datetime.now(timezone.utc),
         "event_title": event_title,
     })
+
+
+# ── Show cache ───────────────────────────────────────────────────────────────
+# Shared with show-list-web (Rails), which reads/writes this collection
+# directly via its own Firestore credentials — no API endpoint needed.
+
+def _show_cache_key(band_name: str, zip_code: str) -> str:
+    from shared.seatgeek import _normalize
+    return f"{_normalize(band_name)}_{zip_code}"
+
+
+def set_show_cache(band_name: str, zip_code: str, events: list[dict]) -> None:
+    doc_id = _show_cache_key(band_name, zip_code)
+    _db().collection("shows_cache").document(doc_id).set({
+        "band_name": band_name,
+        "zip": zip_code,
+        "events": events,
+        "updated_at": datetime.now(timezone.utc),
+    })
