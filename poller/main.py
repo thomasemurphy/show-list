@@ -34,11 +34,11 @@ def run() -> None:
 
     for user in users:
         phone = user["_phone"]
-        zip_code = user.get("zip")
+        zips = user.get("zips") or []
         bands = user.get("bands") or []
 
-        if not zip_code:
-            logger.info("Skipping %s — no zip code set", phone)
+        if not zips:
+            logger.info("Skipping %s — no zip codes set", phone)
             continue
 
         if not bands:
@@ -46,9 +46,14 @@ def run() -> None:
             continue
 
         for band in bands:
-            events = seatgeek.find_events(band, zip_code)
-            for event in events:
-                event_id = event["id"]
+            # A band can turn up under more than one of the user's zips
+            # (overlapping search radii); dedup by event id before alerting.
+            events_by_id = {}
+            for zip_code in zips:
+                for event in seatgeek.find_events(band, zip_code):
+                    events_by_id[event["id"]] = event
+
+            for event_id, event in events_by_id.items():
                 if db.alert_sent(phone, event_id):
                     logger.debug("Already sent alert for %s / event %s", phone, event_id)
                     continue

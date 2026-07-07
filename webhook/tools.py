@@ -27,13 +27,13 @@ def make_tools(phone: str):
         add it — so tell the user we couldn't find that artist instead of claiming
         they're now tracking it.
 
-        On success, also searches the user's zip for upcoming shows:
+        On success, also searches the user's zip codes for upcoming shows:
         - upcoming_shows is a (possibly empty) list of {date, venue, city, url}.
         - If upcoming_shows is non-empty, tell the user the band is playing near
           them, naming the date and venue/city of the soonest show(s).
         - If upcoming_shows is empty, tell the user there are no scheduled shows
           near them yet, but you'll alert them when one is announced.
-        - If searched_zip is false (user has no zip set), don't mention show
+        - If searched_zip is false (user has no zip codes set), don't mention show
           results — ask for their zip instead so we can check.
         """
         logger.info("[tool] add_band phone=%s band=%r", phone, band)
@@ -47,20 +47,19 @@ def make_tools(phone: str):
         db.add_band(phone, band)
         user = db.get_user(phone) or {}
 
-        zip_code = user.get("zip")
-        upcoming = []
-        if zip_code:
-            events = seatgeek.events_for_slug(slug, band, zip_code)
-            upcoming = [
+        zips = user.get("zips") or []
+        upcoming_by_url = {}
+        for zip_code in zips:
+            for e in seatgeek.events_for_slug(slug, band, zip_code):
                 # Festival times on SeatGeek are placeholders, so send only the
                 # date (YYYY-MM-DD) for festivals; full datetime otherwise.
-                {"date": e["datetime_local"][:10] if e["festival"] else e["datetime_local"],
-                 "venue": e["venue_name"], "city": e["venue_city"], "url": e["url"],
-                 "festival": e["festival"]}
-                for e in events
-            ]
+                upcoming_by_url[e["url"]] = {
+                    "date": e["datetime_local"][:10] if e["festival"] else e["datetime_local"],
+                    "venue": e["venue_name"], "city": e["venue_city"], "url": e["url"],
+                    "festival": e["festival"]}
+        upcoming = sorted(upcoming_by_url.values(), key=lambda s: s["date"])
         return {"ok": True, "bands": user.get("bands") or [],
-                "searched_zip": bool(zip_code), "upcoming_shows": upcoming}
+                "searched_zip": bool(zips), "upcoming_shows": upcoming}
 
     def remove_band(band: str) -> dict:
         """Remove a band from this user's tracking list. Returns the updated list."""
@@ -73,19 +72,33 @@ def make_tools(phone: str):
         user = db.get_user(phone) or {}
         return {"ok": True, "bands": user.get("bands") or []}
 
-    def set_zip(zip_code: str) -> dict:
-        """Set this user's 5-digit US zip code so we know where they live."""
-        logger.info("[tool] set_zip phone=%s zip=%r", phone, zip_code)
+    def add_zip(zip_code: str) -> dict:
+        """Add a 5-digit US zip code to this user's list of locations to check.
+        Users can track more than one zip (e.g. home and a city they visit often)."""
+        logger.info("[tool] add_zip phone=%s zip=%r", phone, zip_code)
         if not zip_code.isdigit() or len(zip_code) != 5:
             return {"ok": False, "reason": "invalid_zip"}
-        db.upsert_user(phone, zip=zip_code)
-        return {"ok": True, "zip": zip_code}
+        db.upsert_user(phone)
+        db.add_zip(phone, zip_code)
+        user = db.get_user(phone) or {}
+        return {"ok": True, "zips": user.get("zips") or []}
+
+    def remove_zip(zip_code: str) -> dict:
+        """Remove a zip code from this user's list of locations. Returns the updated list."""
+        logger.info("[tool] remove_zip phone=%s zip=%r", phone, zip_code)
+        user = db.get_user(phone) or {}
+        current = user.get("zips") or []
+        if zip_code not in current:
+            return {"ok": False, "reason": "not_tracking", "zips": current}
+        db.remove_zip(phone, zip_code)
+        user = db.get_user(phone) or {}
+        return {"ok": True, "zips": user.get("zips") or []}
 
     def list_bands() -> dict:
-        """Return the user's current tracking list and zip code."""
+        """Return the user's current tracking list and zip codes."""
         logger.info("[tool] list_bands phone=%s", phone)
         user = db.get_user(phone) or {}
-        return {"bands": user.get("bands") or [], "zip": user.get("zip")}
+        return {"bands": user.get("bands") or [], "zips": user.get("zips") or []}
 
     def list_upcoming_shows() -> dict:
         """List upcoming shows near the user across every band they track.
@@ -105,29 +118,32 @@ def make_tools(phone: str):
         """
         logger.info("[tool] list_upcoming_shows phone=%s", phone)
         user = db.get_user(phone) or {}
-        zip_code = user.get("zip")
+        zips = user.get("zips") or []
         bands = user.get("bands") or []
-        if not zip_code:
+        if not zips:
             return {"ok": False, "reason": "no_zip"}
         if not bands:
             return {"ok": False, "reason": "no_bands"}
 
-        shows = []
+        # A band can turn up under more than one zip (overlapping search
+        # radii); dedup by (band, url) before returning.
+        shows_by_key = {}
         for band in bands:
             slug = seatgeek.resolve_performer(band)
             if not slug:
                 continue
-            for e in seatgeek.events_for_slug(slug, band, zip_code):
-                shows.append({
-                    "band": band,
-                    # Festival times are placeholders, so send date-only for them.
-                    "date": e["datetime_local"][:10] if e["festival"] else e["datetime_local"],
-                    "venue": e["venue_name"],
-                    "city": e["venue_city"],
-                    "url": e["url"],
-                    "festival": e["festival"],
-                })
-        shows.sort(key=lambda s: s["date"])
+            for zip_code in zips:
+                for e in seatgeek.events_for_slug(slug, band, zip_code):
+                    shows_by_key[(band, e["url"])] = {
+                        "band": band,
+                        # Festival times are placeholders, so send date-only for them.
+                        "date": e["datetime_local"][:10] if e["festival"] else e["datetime_local"],
+                        "venue": e["venue_name"],
+                        "city": e["venue_city"],
+                        "url": e["url"],
+                        "festival": e["festival"],
+                    }
+        shows = sorted(shows_by_key.values(), key=lambda s: s["date"])
         return {"ok": True, "shows": shows}
 
-    return [add_band, remove_band, set_zip, list_bands, list_upcoming_shows]
+    return [add_band, remove_band, add_zip, remove_zip, list_bands, list_upcoming_shows]

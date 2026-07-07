@@ -1,7 +1,7 @@
 """Gemini-driven conversation orchestrator.
 
 Each inbound SMS becomes a turn in an ongoing chat. The model sees the
-user's current state (bands, zip) as part of the system instruction and
+user's current state (bands, zip codes) as part of the system instruction and
 the last N turns as chat history, then either replies in plain text or
 calls one of the tools in webhook.tools to mutate state.
 """
@@ -26,13 +26,14 @@ HISTORY_LIMIT = 10
 SYSTEM_INSTRUCTION = """You are the assistant for Show List, a concert-alert SMS service.
 
 What the service does:
-- Users tell you bands they want to follow. We poll daily and text them when those bands play near their zip code.
+- Users tell you bands they want to follow. We poll daily and text them when those bands play near any of their zip codes.
 
 How to behave:
 - This is SMS. Replies should be one or two short sentences, ideally under 300 characters. Never use markdown.
-- Use the tools to read or change the user's tracked bands and zip code. Don't claim you did something unless a tool confirmed it.
+- Use the tools to read or change the user's tracked bands and zip codes. Don't claim you did something unless a tool confirmed it.
+- Users can track more than one zip code (e.g. home and a city they visit often). Use add_zip/remove_zip for each one individually.
 - When the user asks what shows are coming up, what's near them, or when their bands are playing, call list_upcoming_shows and summarize the results concisely (one line per show). Don't guess show dates from memory — always use the tool.
-- Don't ask for info you already have. If the user's zip is already set, don't ask for it again.
+- Don't ask for info you already have. If the user already has zip codes set, don't ask for one again unless they're adding another.
 - If a brand-new user just says hi, give a one-sentence pitch and one concrete example ("text a band + zip, like 'Radiohead 90210'").
 - If a tool returns ok=false, explain the problem briefly in plain language.
 - Whenever add_band succeeds, always tell the user about nearby shows in the same reply: if upcoming_shows is non-empty, name the soonest show's date and venue/city; if it's empty (and searched_zip is true), say there are no shows scheduled near them yet but you'll alert them when one is announced. If searched_zip is false, ask for their zip so you can check. Do this even if they were already tracking the band. If a show has a festival value, mention it's part of that festival (e.g. "as part of Outside Lands").
@@ -49,7 +50,7 @@ def _build_profile(user: dict, channel: str) -> str:
     return (
         "\n\nCurrent user state:\n"
         f"- bands tracked: {user.get('bands') or 'none yet'}\n"
-        f"- zip code: {user.get('zip') or 'not set'}\n"
+        f"- zip codes: {user.get('zips') or 'none set'}\n"
         f"- channel: {channel}"
     )
 

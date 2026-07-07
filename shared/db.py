@@ -40,6 +40,19 @@ def remove_band(phone: str, band: str) -> None:
     )
 
 
+def add_zip(phone: str, zip_code: str) -> None:
+    _db().collection("users").document(phone).set(
+        {"zips": firestore.ArrayUnion([zip_code])},
+        merge=True,
+    )
+
+
+def remove_zip(phone: str, zip_code: str) -> None:
+    _db().collection("users").document(phone).update(
+        {"zips": firestore.ArrayRemove([zip_code])}
+    )
+
+
 def get_all_users() -> list[dict]:
     docs = _db().collection("users").stream()
     users = []
