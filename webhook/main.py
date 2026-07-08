@@ -77,10 +77,10 @@ def api_resolve_band():
     name = request.args.get("name", "")
     if not name:
         return {"ok": False, "reason": "missing_name"}, 400
-    slug = seatgeek.resolve_performer(name)
-    if not slug:
+    details = seatgeek.resolve_performer_details(name)
+    if not details:
         return {"ok": False, "reason": "not_found"}, 200
-    return {"ok": True, "slug": slug}, 200
+    return {"ok": True, "slug": details["slug"], "name": details["name"]}, 200
 
 
 @app.route("/api/bands/<slug>/shows", methods=["GET"])

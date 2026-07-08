@@ -52,8 +52,8 @@ def _festival_name(ev: dict) -> Optional[str]:
     return ev.get("short_title") or None
 
 
-def resolve_performer(band_name: str) -> Optional[str]:
-    """Return the best SeatGeek performer slug for band_name, or None.
+def _find_best_performer(band_name: str) -> Optional[dict]:
+    """Return the best-matching SeatGeek performer record for band_name, or None.
 
     SeatGeek's default ranking buries real acts under same-named noise (e.g.
     "Wednesday" returns club nights like "Kapture Wednesdays" first), so we sort
@@ -61,8 +61,8 @@ def resolve_performer(band_name: str) -> Optional[str]:
     back to the top hit only when we're confident. This avoids silently tracking
     the wrong act (a tribute band, a recurring club night, a theater company).
 
-    Uncached. The webhook calls this directly for add-time validation; the poller
-    uses the memoized find_performer wrapper below.
+    Uncached. Shared by resolve_performer (slug) and resolve_performer_details
+    (slug + canonical display name) so both do a single API call.
     """
     try:
         resp = requests.get(
@@ -91,7 +91,7 @@ def resolve_performer(band_name: str) -> Optional[str]:
     for p in candidates:
         if _normalize(p.get("name", "")) == target:
             logger.info("Performer %r → slug %r (exact match)", band_name, p["slug"])
-            return p["slug"]
+            return p
 
     # No exact match — only trust the top hit if it's a confident match, else
     # match nothing rather than risk a tribute/cover act.
@@ -99,11 +99,32 @@ def resolve_performer(band_name: str) -> Optional[str]:
     if (best.get("score") or 0) >= _MIN_FUZZY_SCORE:
         logger.info("Performer %r → slug %r (fuzzy, score=%s)",
                     band_name, best["slug"], best.get("score"))
-        return best["slug"]
+        return best
 
     logger.info("No confident SeatGeek match for %r (best=%r, score=%s) — skipping",
                 band_name, best.get("name"), best.get("score"))
     return None
+
+
+def resolve_performer(band_name: str) -> Optional[str]:
+    """Return the best SeatGeek performer slug for band_name, or None.
+
+    Uncached. The webhook calls this directly for add-time validation; the poller
+    uses the memoized find_performer wrapper below.
+    """
+    record = _find_best_performer(band_name)
+    return record["slug"] if record else None
+
+
+def resolve_performer_details(band_name: str) -> Optional[dict]:
+    """Return {"slug", "name"} for the best SeatGeek performer match, or None.
+
+    "name" is SeatGeek's canonical spelling/casing for the act (e.g. "Wednesday"
+    for a query of "wednesday") — used to regularize a user-typed band name at
+    add-time rather than storing whatever casing they happened to type.
+    """
+    record = _find_best_performer(band_name)
+    return {"slug": record["slug"], "name": record["name"]} if record else None
 
 
 @lru_cache(maxsize=None)
