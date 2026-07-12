@@ -50,7 +50,13 @@ def make_tools(phone: str):
         zips = user.get("zips") or []
         upcoming_by_url = {}
         for zip_code in zips:
-            for e in seatgeek.events_for_slug(slug, band, zip_code):
+            events = seatgeek.events_for_slug(slug, band, zip_code)
+            # Mirrors show-list-web's BandsController#create, which calls
+            # ShowChecker for each of the user's zips on add so the dashboard
+            # cell is populated immediately rather than waiting for the next
+            # daily poller run.
+            db.set_show_cache(band, zip_code, events)
+            for e in events:
                 # Festival times on SeatGeek are placeholders, so send only the
                 # date (YYYY-MM-DD) for festivals; full datetime otherwise.
                 upcoming_by_url[e["url"]] = {
@@ -74,14 +80,42 @@ def make_tools(phone: str):
 
     def add_zip(zip_code: str) -> dict:
         """Add a 5-digit US zip code to this user's list of locations to check.
-        Users can track more than one zip (e.g. home and a city they visit often)."""
+        Users can track more than one zip (e.g. home and a city they visit often).
+
+        On success, also searches this zip for upcoming shows from every band
+        the user already tracks:
+        - upcoming_shows is a (possibly empty) list of {band, date, venue, city, url}.
+        - If upcoming_shows is non-empty, tell the user which of their bands are
+          playing near this new zip, naming the date and venue/city.
+        - If upcoming_shows is empty, tell the user nothing's scheduled there yet,
+          but they'll be alerted when something is announced.
+        """
         logger.info("[tool] add_zip phone=%s zip=%r", phone, zip_code)
         if not zip_code.isdigit() or len(zip_code) != 5:
             return {"ok": False, "reason": "invalid_zip"}
         db.upsert_user(phone)
         db.add_zip(phone, zip_code)
         user = db.get_user(phone) or {}
-        return {"ok": True, "zips": user.get("zips") or []}
+
+        bands = user.get("bands") or []
+        upcoming_by_key = {}
+        # Mirrors show-list-web's ZipsController#create, which checks every
+        # tracked band against a newly added zip so the dashboard row is
+        # populated immediately rather than waiting for the next daily poller.
+        for band in bands:
+            slug = seatgeek.resolve_performer(band)
+            if not slug:
+                continue
+            events = seatgeek.events_for_slug(slug, band, zip_code)
+            db.set_show_cache(band, zip_code, events)
+            for e in events:
+                upcoming_by_key[(band, e["url"])] = {
+                    "band": band,
+                    "date": e["datetime_local"][:10] if e["festival"] else e["datetime_local"],
+                    "venue": e["venue_name"], "city": e["venue_city"], "url": e["url"],
+                    "festival": e["festival"]}
+        upcoming = sorted(upcoming_by_key.values(), key=lambda s: s["date"])
+        return {"ok": True, "zips": user.get("zips") or [], "upcoming_shows": upcoming}
 
     def remove_zip(zip_code: str) -> dict:
         """Remove a zip code from this user's list of locations. Returns the updated list."""
