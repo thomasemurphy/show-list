@@ -45,6 +45,8 @@ def run() -> None:
             logger.info("Skipping %s — no bands tracked", phone)
             continue
 
+        sms_alerts_enabled = user.get("sms_alerts_enabled", True)
+
         for band in bands:
             # A band can turn up under more than one of the user's zips
             # (overlapping search radii); dedup by event id before alerting.
@@ -58,6 +60,14 @@ def run() -> None:
             for event_id, event in events_by_id.items():
                 if db.alert_sent(phone, event_id):
                     logger.debug("Already sent alert for %s / event %s", phone, event_id)
+                    continue
+
+                if not sms_alerts_enabled:
+                    # Record as seen (without sending) so re-enabling later
+                    # doesn't flood the user with everything missed while off.
+                    logger.debug("SMS alerts disabled for %s — not sending", phone)
+                    if not DRY_RUN:
+                        db.record_alert(phone, event_id, event["title"])
                     continue
 
                 success = notifier.send_alert(user, event, dry_run=DRY_RUN)
