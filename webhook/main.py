@@ -77,10 +77,13 @@ def api_resolve_band():
     name = request.args.get("name", "")
     if not name:
         return {"ok": False, "reason": "missing_name"}, 400
-    details = seatgeek.resolve_performer_details(name)
-    if not details:
-        return {"ok": False, "reason": "not_found"}, 200
-    return {"ok": True, "slug": details["slug"], "name": details["name"]}, 200
+
+    result = seatgeek.resolve_performer_interactive(name)
+    if result["status"] == "confident":
+        return {"ok": True, "status": "confident", "slug": result["slug"], "name": result["name"]}, 200
+    if result["status"] == "ambiguous":
+        return {"ok": False, "status": "ambiguous", "reason": "ambiguous", "candidates": result["candidates"]}, 200
+    return {"ok": False, "status": "not_found", "reason": "not_found"}, 200
 
 
 @app.route("/api/bands/<slug>/shows", methods=["GET"])

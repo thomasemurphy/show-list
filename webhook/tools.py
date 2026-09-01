@@ -22,12 +22,22 @@ def make_tools(phone: str):
         """Add a band to this user's tracking list. Returns the updated list and
         any upcoming shows near the user right now.
 
-        Before adding, confirms the band exists on our concert data source. If no
-        confident match is found, returns ok=false reason=not_found and does NOT
-        add it — so tell the user we couldn't find that artist instead of claiming
-        they're now tracking it.
+        Before adding, checks the band against our concert data source. Three
+        possible outcomes, given as "status":
 
-        On success, also searches the user's zip codes for upcoming shows:
+        - "confident": a real act was matched and IS now added. Proceed to the
+          upcoming-shows summary below.
+        - "ambiguous": several plausible acts were found and NOTHING was added.
+          "candidates" is a list of {name, score} — briefly ask the user which
+          one they mean (e.g. "Did you mean Chase Atlantic, Chase Matthew, or
+          Chase & Status?"), or whether none of them are right. Once they
+          answer, call add_band again with the exact name of the act they
+          picked (or a corrected spelling if none matched) — don't add on your
+          own guess.
+        - "not_found": no real act matched and nothing was added. Tell the user
+          and ask them to check the spelling.
+
+        On a confident add, also searches the user's zip codes for upcoming shows:
         - upcoming_shows is a (possibly empty) list of {date, venue, city, url}.
         - If upcoming_shows is non-empty, tell the user the band is playing near
           them, naming the date and venue/city of the soonest show(s).
@@ -37,25 +47,33 @@ def make_tools(phone: str):
           results — ask for their zip instead so we can check.
         """
         logger.info("[tool] add_band phone=%s band=%r", phone, band)
-        slug = seatgeek.resolve_performer(band)
-        if not slug:
+        result = seatgeek.resolve_performer_interactive(band)
+
+        if result["status"] == "ambiguous":
+            logger.info("[tool] add_band: ambiguous match for %r", band)
+            return {"ok": False, "status": "ambiguous", "reason": "ambiguous",
+                    "band": band, "candidates": result["candidates"]}
+
+        if result["status"] == "not_found":
             logger.info("[tool] add_band: no concert-source match for %r", band)
             user = db.get_user(phone) or {}
-            return {"ok": False, "reason": "not_found", "band": band,
+            return {"ok": False, "status": "not_found", "reason": "not_found", "band": band,
                     "bands": user.get("bands") or []}
+
+        slug, canonical_name = result["slug"], result["name"]
         db.upsert_user(phone)
-        db.add_band(phone, band)
+        db.add_band(phone, canonical_name)
         user = db.get_user(phone) or {}
 
         zips = user.get("zips") or []
         upcoming_by_url = {}
         for zip_code in zips:
-            events = seatgeek.events_for_slug(slug, band, zip_code)
+            events = seatgeek.events_for_slug(slug, canonical_name, zip_code)
             # Mirrors show-list-web's BandsController#create, which calls
             # ShowChecker for each of the user's zips on add so the dashboard
             # cell is populated immediately rather than waiting for the next
             # daily poller run.
-            db.set_show_cache(band, zip_code, events)
+            db.set_show_cache(canonical_name, zip_code, events)
             for e in events:
                 # Festival times on SeatGeek are placeholders, so send only the
                 # date (YYYY-MM-DD) for festivals; full datetime otherwise.
@@ -64,7 +82,7 @@ def make_tools(phone: str):
                     "venue": e["venue_name"], "city": e["venue_city"], "url": e["url"],
                     "festival": e["festival"]}
         upcoming = sorted(upcoming_by_url.values(), key=lambda s: s["date"])
-        return {"ok": True, "bands": user.get("bands") or [],
+        return {"ok": True, "status": "confident", "bands": user.get("bands") or [],
                 "searched_zip": bool(zips), "upcoming_shows": upcoming}
 
     def remove_band(band: str) -> dict:
