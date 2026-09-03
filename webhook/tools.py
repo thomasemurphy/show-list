@@ -12,7 +12,7 @@ break that with "isinstance() arg 2 must be a type".
 
 import logging
 
-from shared import db, seatgeek
+from shared import band_resolver, db, seatgeek
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +28,16 @@ def make_tools(phone: str):
         - "confident": a real act was matched and IS now added. Proceed to the
           upcoming-shows summary below.
         - "ambiguous": several plausible acts were found and NOTHING was added.
-          "candidates" is a list of {name, score} — briefly ask the user which
-          one they mean (e.g. "Did you mean Chase Atlantic, Chase Matthew, or
-          Chase & Status?"), or whether none of them are right. Once they
-          answer, call add_band again with the exact name of the act they
-          picked (or a corrected spelling if none matched) — don't add on your
-          own guess.
-        - "not_found": no real act matched and nothing was added. Tell the user
-          and ask them to check the spelling.
+          "question" is a ready-made clarifying question and "candidates" is a
+          list of {name, description} — ask the user which one they mean, using
+          the descriptions to tell them apart (e.g. "Which Chase — Chase
+          Atlantic, the Australian alt-R&B trio, or Chase Rice, the country
+          singer?"), or whether none of them are right. Once they answer, call
+          add_band again with the exact name of the act they picked (or a
+          corrected spelling if none matched) — don't add on your own guess.
+        - "not_found": no real act matched and nothing was added. "reason"
+          explains why in plain language — tell the user that, and ask them to
+          check the spelling.
 
         On a confident add, also searches the user's zip codes for upcoming shows:
         - upcoming_shows is a (possibly empty) list of {date, venue, city, url}.
@@ -47,17 +49,19 @@ def make_tools(phone: str):
           results — ask for their zip instead so we can check.
         """
         logger.info("[tool] add_band phone=%s band=%r", phone, band)
-        result = seatgeek.resolve_performer_interactive(band)
+        result = band_resolver.resolve(band)
 
         if result["status"] == "ambiguous":
             logger.info("[tool] add_band: ambiguous match for %r", band)
             return {"ok": False, "status": "ambiguous", "reason": "ambiguous",
-                    "band": band, "candidates": result["candidates"]}
+                    "band": band, "question": result["question"],
+                    "candidates": result["candidates"]}
 
         if result["status"] == "not_found":
             logger.info("[tool] add_band: no concert-source match for %r", band)
             user = db.get_user(phone) or {}
             return {"ok": False, "status": "not_found", "reason": "not_found", "band": band,
+                    "explanation": result.get("reason") or "",
                     "bands": user.get("bands") or []}
 
         slug, canonical_name = result["slug"], result["name"]

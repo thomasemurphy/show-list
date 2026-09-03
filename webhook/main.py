@@ -7,7 +7,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
-from shared import seatgeek
+from shared import band_resolver, seatgeek
 from shared.config import config
 from webhook import conversation
 
@@ -78,12 +78,16 @@ def api_resolve_band():
     if not name:
         return {"ok": False, "reason": "missing_name"}, 400
 
-    result = seatgeek.resolve_performer_interactive(name)
+    result = band_resolver.resolve(name)
     if result["status"] == "confident":
         return {"ok": True, "status": "confident", "slug": result["slug"], "name": result["name"]}, 200
     if result["status"] == "ambiguous":
-        return {"ok": False, "status": "ambiguous", "reason": "ambiguous", "candidates": result["candidates"]}, 200
-    return {"ok": False, "status": "not_found", "reason": "not_found"}, 200
+        # question and each candidate's description come from the resolver's
+        # Gemini loop; the website renders them in its "which one?" popover.
+        return {"ok": False, "status": "ambiguous", "reason": "ambiguous",
+                "question": result["question"], "candidates": result["candidates"]}, 200
+    return {"ok": False, "status": "not_found", "reason": "not_found",
+            "explanation": result.get("reason") or ""}, 200
 
 
 @app.route("/api/bands/<slug>/shows", methods=["GET"])

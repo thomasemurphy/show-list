@@ -263,6 +263,38 @@ def _typo_search(band_name: str) -> list[dict]:
     return [performer for performer, _similarity in ranked]
 
 
+def search_candidates(query: str, limit: int = 8) -> list[dict]:
+    """Return SeatGeek's performer hits for query, trimmed to the fields a
+    caller needs to tell acts apart.
+
+    Public, unopinionated view of _search_performers, for callers that want the
+    raw candidates rather than this module's verdict about them — the
+    Gemini resolver in shared/band_resolver.py, which searches several spellings
+    of a name and decides between the results itself. genres is what lets it
+    tell a country act from an R&B one when two share a name.
+    """
+    return [
+        {
+            "name": p.get("name"),
+            "slug": p.get("slug"),
+            "score": round(p.get("score") or 0, 3),
+            "event_count": (p.get("stats") or {}).get("event_count") or 0,
+            "type": p.get("type"),
+            "genres": [g.get("name") for g in (p.get("genres") or []) if g.get("name")][:3],
+        }
+        for p in _search_performers(query)[:limit]
+    ]
+
+
+def exact_match(band_name: str) -> Optional[dict]:
+    """Return the SeatGeek performer whose name matches band_name exactly
+    (case/punctuation-insensitive), or None. The one tier of matching that
+    needs no judgment at all, split out so band_resolver can take it as a fast
+    path before spending an LLM call.
+    """
+    return _exact_match(band_name, _search_performers(band_name))
+
+
 def resolve_performer_interactive(band_name: str) -> dict:
     """Resolve band_name against SeatGeek with a confidence tier the caller can
     act on, so an ambiguous query becomes a clarifying question instead of a

@@ -96,3 +96,35 @@ def set_show_cache(band_name: str, zip_code: str, events: list[dict]) -> None:
         "events": events,
         "updated_at": datetime.now(timezone.utc),
     })
+
+
+# ── Band alias cache ─────────────────────────────────────────────────────────
+# Memoizes what shared/band_resolver.py's Gemini loop concluded about a given
+# typed query ("mumford and sons" -> Mumford & Sons), so the second person to
+# type it — and the same person retyping it next month — skips the LLM call
+# entirely. Keyed on the normalized *query*, not the resolved act, since the
+# whole point is to short-circuit the messy input. Confident resolutions only.
+
+def _band_alias_key(query: str) -> str:
+    from shared.seatgeek import _normalize
+    return _normalize(query)
+
+
+def get_band_alias(query: str) -> Optional[dict]:
+    key = _band_alias_key(query)
+    if not key:
+        return None
+    doc = _db().collection("band_aliases").document(key).get()
+    return doc.to_dict() if doc.exists else None
+
+
+def set_band_alias(query: str, slug: str, name: str) -> None:
+    key = _band_alias_key(query)
+    if not key:
+        return
+    _db().collection("band_aliases").document(key).set({
+        "query": query,
+        "slug": slug,
+        "name": name,
+        "updated_at": datetime.now(timezone.utc),
+    })
