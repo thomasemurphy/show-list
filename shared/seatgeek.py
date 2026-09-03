@@ -193,21 +193,45 @@ def _typo_variants(band_name: str) -> list[str]:
     return variants[:_MAX_TYPO_VARIANTS]
 
 
+def _word_drop_variants(band_name: str) -> list[str]:
+    """Generate variants of band_name with exactly one word removed, once for
+    each word in turn. SeatGeek's search requires every token in the query to
+    literally appear in the performer's name (see _typo_variants' docstring
+    for the character-level version of the same problem) — so a single word
+    that isn't spelled the way SeatGeek has it indexed sinks the whole query,
+    no matter how well every other word matches. Rather than guess *how*
+    that one word differs (a connector written "and" where the act uses "&"
+    or "+", a "The" SeatGeek doesn't carry, any other mismatch), this just
+    drops each word in turn and lets whatever's left — still anchored by
+    every other, correctly-spelled word — find the real match. Confirmed
+    directly against the API: "Mumford and Sons" (0 hits) drops "and" to
+    "Mumford Sons" and finds Mumford & Sons; "Earth Wind and Fire" (the real
+    act buried under tribute-act noise) drops "and" to "Earth Wind Fire" and
+    surfaces it cleanly on top. No-op for single-word names, which have no
+    word to drop.
+    """
+    words = band_name.split(" ")
+    if len(words) < 2:
+        return []
+    return [" ".join(words[:i] + words[i + 1:]) for i in range(len(words))]
+
+
 def _typo_search(band_name: str) -> list[dict]:
     """When the exact query has no real SeatGeek match, retry its likely-typo
-    variants (see _typo_variants) in parallel and merge whatever real
-    performers they turn up — keeping only ones that are still plausibly
-    close to what was actually typed (see _MIN_TYPO_SIMILARITY), since a
-    variant search can occasionally surface an unrelated act that just
-    happens to score well on that one variant, and this should only offer
-    spelling corrections, not new guesses. Returns performer records ranked
-    by similarity to band_name combined with SeatGeek relevance — so among a
-    few similarly-spelled candidates, the one that's an actual touring act
-    outranks an obscure one that merely spells closer (e.g. for "Tila": the
-    real, popular "Tyla" outranks "Tilian", which is textually closer but a
-    much less relevant match) — or [] if nothing plausible turned up.
+    variants (see _typo_variants) and single-word-dropped variants (see
+    _word_drop_variants) in parallel and merge whatever real performers they
+    turn up — keeping only ones that are still plausibly close to what was
+    actually typed (see _MIN_TYPO_SIMILARITY), since a variant search can
+    occasionally surface an unrelated act that just happens to score well on
+    that one variant, and this should only offer spelling corrections, not
+    new guesses. Returns performer records ranked by similarity to band_name
+    combined with SeatGeek relevance — so among a few similarly-spelled
+    candidates, the one that's an actual touring act outranks an obscure one
+    that merely spells closer (e.g. for "Tila": the real, popular "Tyla"
+    outranks "Tilian", which is textually closer but a much less relevant
+    match) — or [] if nothing plausible turned up.
     """
-    variants = _typo_variants(band_name)
+    variants = list(dict.fromkeys(_word_drop_variants(band_name) + _typo_variants(band_name)))
     if not variants:
         return []
 
@@ -275,32 +299,52 @@ def resolve_performer_interactive(band_name: str) -> dict:
                         band_name, best["slug"], best_score, second_score)
             return {"status": "confident", "slug": best["slug"], "name": best["name"]}
 
-        suggestions = [p for p in candidates if (p.get("score") or 0) >= _AMBIGUOUS_FLOOR][:4]
-        if suggestions:
+        suggestions = [p for p in candidates if (p.get("score") or 0) >= _AMBIGUOUS_FLOOR]
+        # Trust the literal query's own suggestions outright only if the top
+        # one clears the real-match bar. Below that, they're not wrong to
+        # show, but they're not necessarily the best we can do either — e.g.
+        # "Earth Wind and Fire" (dropped the "&") returns only a fan tribute
+        # and a reunion-show listing at 0.29-0.38, none of them the actual
+        # band, while dropping "and" from the query finds the real Earth,
+        # Wind & Fire at 0.57. So below the bar, still check the fallback
+        # variants and merge rather than settling for the weaker list.
+        if suggestions and suggestions[0].get("score", 0) >= _MIN_FUZZY_SCORE:
+            top = suggestions[:4]
             logger.info("Ambiguous SeatGeek match for %r — %d candidate(s): %s",
-                        band_name, len(suggestions), [p["name"] for p in suggestions])
+                        band_name, len(top), [p["name"] for p in top])
             return {
                 "status": "ambiguous",
                 "candidates": [
                     {"slug": p["slug"], "name": p["name"], "score": p.get("score") or 0}
-                    for p in suggestions
+                    for p in top
                 ],
             }
+    else:
+        suggestions = []
 
-    # The exact query came back empty (or nothing on it cleared the ambiguous
-    # floor) — SeatGeek's own search is literal, so before giving up, retry
-    # likely-typo variants of what was typed (e.g. "Tila" -> "Tyla").
+    # The exact query came back empty, or nothing on it was strong enough to
+    # trust outright — SeatGeek's own search is literal, so before giving up
+    # (or settling for a weak literal-query suggestion), retry likely-typo
+    # and single-word-dropped variants of what was typed (e.g. "Tila" ->
+    # "Tyla"; "Mumford and Sons" -> "Mumford Sons" -> Mumford & Sons).
     typo_matches = _typo_search(band_name)
-    if typo_matches:
-        logger.info("Typo-corrected SeatGeek match for %r — %d candidate(s): %s",
-                    band_name, len(typo_matches), [p["name"] for p in typo_matches[:4]])
-        return {
-            "status": "ambiguous",
-            "candidates": [
-                {"slug": p["slug"], "name": p["name"], "score": p.get("score") or 0}
-                for p in typo_matches[:4]
-            ],
-        }
+    if typo_matches or suggestions:
+        pool = {p["slug"]: p for p in suggestions if p.get("slug")}
+        for p in typo_matches:
+            slug = p.get("slug")
+            if slug and (p.get("score") or 0) > (pool.get(slug, {}).get("score") or 0):
+                pool[slug] = p
+        ranked = sorted(pool.values(), key=lambda p: p.get("score") or 0, reverse=True)[:4]
+        if ranked:
+            logger.info("Fallback SeatGeek match for %r — %d candidate(s): %s",
+                        band_name, len(ranked), [p["name"] for p in ranked])
+            return {
+                "status": "ambiguous",
+                "candidates": [
+                    {"slug": p["slug"], "name": p["name"], "score": p.get("score") or 0}
+                    for p in ranked
+                ],
+            }
 
     logger.info("No confident, plausible, or typo-corrected SeatGeek match for %r", band_name)
     return {"status": "not_found"}
